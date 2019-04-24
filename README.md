@@ -1,2 +1,2 @@
 # TestProjects
-python scripts 
+Test scripts 
