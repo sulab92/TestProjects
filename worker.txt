@@ -1,0 +1,58 @@
+#!/bin/sh
+
+basedirname=`dirname $0`
+workerid=`basename "$basedirname"`;
+cd `dirname $0`/../..
+
+# read configuration variables, after setting defaults
+n_tries=3           # Number of tries to attempt to run a job; integer or 'infinite'
+start_delay=0              # delay (seconds) before the first attempt to start a job
+idle_delay=$((10 * 60))    # delay (seconds) when there are no jobs waiting
+restart_delay=$((5 * 60))  # delay (seconds) before restarting a failed job
+test -f ./config && { . ./config; }
+
+# grab lock..
+# pick file name
+# no file name: idle_delay and exit
+# file name: copy to RUN
+# unlock
+# for (n_tries):
+# run job
+# if passed:
+#   move job to DONE
+#   exit
+# move job to FAILED
+
+job_fname=`(
+  flock 9;
+
+  # grab a job; sleep if none found
+  job_fname=\`find IN -type f | sort | head -1\`;
+
+  test "x$job_fname" = "x" || { mv $job_fname RUNNING/$workerid; basename $job_fname; }
+
+) 9>lockfile`
+
+logfile=task_log/${job_fname}
+
+## empty job? wait & terminate; else continue
+test "x$job_fname" = "x" && { sleep $idle_delay; } || {
+    # There's a job ready; run it
+    sleep $start_delay;
+
+    echo "`date +%Y-%m-%d:%H:%M:%S` -- Starting: $job_fname ";
+
+    while test "$n_tries" != "0"; do
+        echo "======= Start: `date` ==========" >> $logfile;
+        ./RUNNING/$workerid/${job_fname} >> $logfile 2>&1 && break;
+        test "$n_tries" = "infinite" || n_tries=$((n_tries - 1));
+    done
+
+    test "$n_tries" = "0" && {
+       echo "========== FAIL ===========" >> $logfile;
+       mv RUNNING/$workerid/${job_fname} FAILED;
+    } || {
+       echo "======== End: `date` ======" >> $logfile;
+       mv RUNNING/$workerid/${job_fname} DONE;
+    }
+}
